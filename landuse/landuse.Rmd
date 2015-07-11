@@ -1,0 +1,151 @@
+---
+title: "Land Use and GDP"
+author: "thedataeconomist.tumblr.com"
+date: "Saturday, November 01, 2014"
+output: html_document
+---
+
+# Sources
+https://www.cia.gov/library/publications/the-world-factbook/
+
+http://opengeocode.org/cude1.1/CIA/WFB/index.php
+
+```{r setoptions, include=FALSE}
+library(knitr)
+opts_chunk$set(fig.width=8, fig.height=6, echo=FALSE, results="hide", 
+               warning=FALSE, message=FALSE)
+```
+
+# Introduction
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+This entry contains the percentage shares of total land area for three different types of land use: arable land - land cultivated for crops like wheat, maize, and rice that are replanted after each harvest; permanent crops - land cultivated for crops like citrus, coffee, and rubber that are not replanted after each harvest; includes land under flowering shrubs, fruit trees, nut trees, and vines, but excludes land under trees grown for wood or timber; other - any land not arable or under permanent crops; includes permanent meadows and pastures, forests and woodlands, built-on areas, roads, barren land, etc. (The World Factbook, CIA)
+
+```{r initialize}
+library(ggplot2)
+library(reshape2)
+```
+
+```{r landuse}
+
+# fetch data
+if (!file.exists("./landuse.zip")) { 
+        fileUrl <- "http://opengeocode.org/cude1.1/CIA/WFB/2097.zip"
+        download.file(fileUrl, destfile = "./landuse.zip")
+}
+
+# unzip and rename data
+unzip("./landuse.zip")
+file.rename("./2097.csv", "./landuse.csv")
+
+# load data, set variable names, drop empty columns
+landuse <- read.csv("./landuse.csv",
+                     row.names = NULL, header = FALSE, skip = 2)
+names(landuse) <- c("", "ISO.3166.1.A2", "NGA.GNS.FC", "NGA.GNS.DSG",
+                    "Arable", "Permanent", "ISO.639.1", "Script", 
+                    "Short.Name", "")
+landuse <- landuse[, 2:9]
+rownames(landuse) <- NULL
+
+# create variable for Other
+landuse$Other <- 100 - landuse$Arable - landuse$Permanent
+
+mlanduse <- melt(landuse, 
+                 id = c("ISO.3166.1.A2", "NGA.GNS.FC", "NGA.GNS.DSG",
+                    "ISO.639.1", "Script", "Short.Name"))
+
+```
+
+You can also embed plots, for example:
+
+```{r plot1, fig.height=3, results="hide"}
+qplot(value, data = mlanduse, facets = . ~ variable)
+
+```
+
+```{r gdp.pop}
+if (!file.exists("./gdpppp.txt")) { 
+        setInternet2(use = TRUE)
+        fileUrl <- "https://www.cia.gov/library/publications/the-world-factbook/rankorder/rawdata_2004.txt"
+        download.file(fileUrl, destfile = "./gdpppp.txt")
+}
+
+gdp <- read.delim("./gdpppp.txt", header = FALSE,
+                  stringsAsFactors=FALSE)
+names(gdp) <- c("Rank.GDP", "Short.Name", "GDP.PPP")
+
+gdp$GDP.PPP <- as.numeric(substring(gsub(",", "", gsub(" ", "",
+                                gdp$GDP.PPP)), 2))
+
+if (!file.exists("./pop.txt")) { 
+        setInternet2(use = TRUE)
+        fileUrl <- "https://www.cia.gov/library/publications/the-world-factbook/rankorder/rawdata_2119.txt"
+        download.file(fileUrl, destfile = "./pop.txt")
+}
+
+pop <- read.delim("./pop.txt", header = FALSE, stringsAsFactors=FALSE)
+names(pop) <- c("Rank.Pop", "Short.Name", "Population")
+
+pop$Population <- as.numeric(gsub(",", "",
+                                  gsub(" ", "", pop$Population)))
+
+gdp.pop <- merge(gdp, pop, by.x = "Short.Name", all = TRUE)
+
+```
+
+```{r plot2}
+data <- merge(landuse, gdp.pop, by.x = "Short.Name", all = TRUE)
+data.clean <- data[!(data$Short.Name %in%
+                             c("World", "European Union")), ]
+
+plot <- ggplot(data.clean, aes(Other, GDP.PPP)) + geom_point() 
+plot <- plot + stat_smooth(method = "lm", aes(weight = Population))
+plot
+```
+
+```{r area}
+
+# fetch data
+if (!file.exists("./area.zip")) { 
+        fileUrl <- "http://opengeocode.org/cude1.1/CIA/WFB/2147.zip"
+        download.file(fileUrl, destfile = "./area.zip")
+}
+
+# unzip and rename data
+unzip("./area.zip")
+file.rename("./2147.csv", "./area.csv")
+
+# load data, set variable names, drop empty columns
+area <- read.csv("./area.csv", row.names = NULL, header = FALSE, 
+                 skip = 2, stringsAsFactors=FALSE)
+names(area) <- c("", "ISO.3166.1.A2", "NGA.GNS.FC", "NGA.GNS.DSG",
+                 "TotalArea", "LandArea", "WaterArea", "ISO.639.1",
+                 "Script", "Short.Name", "")
+area <- area[, 2:10]
+rownames(area) <- NULL
+
+# make variable numeric
+area$TotalArea <- as.numeric(area$TotalArea)
+area$LandArea <- as.numeric(area$LandArea)
+area$WaterArea <- as.numeric(area$WaterArea)
+
+area <- area[!(area$NGA.GNS.DSG == "OCN"), ]
+
+data2 <- merge(data, area, by = "Short.Name", all = TRUE)
+data2.clean <- data2[!(data2$Short.Name %in%
+                             c("World", "European Union", "Antarctica")), ]
+
+data2.clean$Density <- data2.clean$Population / data2.clean$LandArea
+```
+
+You can also embed plots, for example:
+
+```{r plot1, fig.height=3, results="hide"}
+plot <- ggplot(data2.clean, aes(Density, GDP.PPP)) + geom_point() 
+plot <- plot + stat_smooth(method = "lm", aes(weight = Population))
+plot
+
+```
